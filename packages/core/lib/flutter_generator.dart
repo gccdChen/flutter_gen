@@ -2,6 +2,7 @@ import 'dart:io' show stdout, Directory, File;
 
 import 'package:flutter_gen_core/generators/assets_generator.dart';
 import 'package:flutter_gen_core/generators/colors_generator.dart';
+import 'package:flutter_gen_core/generators/file_assets_generator.dart';
 import 'package:flutter_gen_core/generators/fonts_generator.dart';
 import 'package:flutter_gen_core/settings/config.dart';
 import 'package:flutter_gen_core/utils/file.dart';
@@ -12,6 +13,7 @@ class FlutterGenerator {
   const FlutterGenerator(
     this.pubspecFile, {
     this.buildFile,
+       this.fileAssetsName = 'fileAssets.gen.dart',
     this.assetsName = 'assets.gen.dart',
     this.colorsName = 'colors.gen.dart',
     this.fontsName = 'fonts.gen.dart',
@@ -20,6 +22,7 @@ class FlutterGenerator {
 
   final File pubspecFile;
   final File? buildFile;
+  final String fileAssetsName;
   final String assetsName;
   final String colorsName;
   final String fontsName;
@@ -51,6 +54,16 @@ class FlutterGenerator {
     );
     if (!absoluteOutput.existsSync()) {
       absoluteOutput.createSync(recursive: true);
+    }
+
+    if(flutterGen.file?.enabled == true){
+      final generated = await generateFileAssets(
+        FileAssetsGenConfig.fromConfig(pubspecFile, config),
+        formatter,
+      );
+      final fileAssetsPath = normalize(join(absoluteOutput.path, fileAssetsName));
+      writer(generated, fileAssetsPath);
+      stdout.writeln('[FlutterGen] Generated: $fileAssetsPath');
     }
 
     if (flutterGen.assets.enabled && flutter.assets.isNotEmpty) {

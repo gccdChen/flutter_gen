@@ -107,6 +107,7 @@ class FlutterGen {
     required this.fonts,
     required this.integrations,
     required this.colors,
+    required this.file,
   });
 
   factory FlutterGen.fromJson(Map json) => _$FlutterGenFromJson(json);
@@ -122,6 +123,9 @@ class FlutterGen {
 
   @JsonKey(name: 'assets', required: true)
   final FlutterGenAssets assets;
+
+  @JsonKey(name: 'file', required: false)
+  final FlutterGenFileAssets? file;
 
   @JsonKey(name: 'fonts', required: true)
   final FlutterGenFonts fonts;
@@ -183,6 +187,33 @@ class FlutterGenAssets {
 
   @JsonKey(name: 'exclude', required: true)
   final List<String> exclude;
+}
+
+
+
+@JsonSerializable()
+class FlutterGenFileAssets {
+  const FlutterGenFileAssets({
+    required this.enabled,
+    this.firstDirAsFlavor = true,
+    required this.inputs,
+    required this.exclude,
+  });
+
+  factory FlutterGenFileAssets.fromJson(Map json) =>
+      _$FlutterGenFileAssetsFromJson(json);
+
+  @JsonKey(name: 'enabled', required: true)
+  final bool enabled;
+
+  @JsonKey(name: 'first_dir_as_flavor', required: false)
+  final bool? firstDirAsFlavor;
+
+  @JsonKey(name: 'inputs', required: true)
+  final List<String> inputs;
+
+  @JsonKey(name: 'exclude', required: false)
+  final List<String>? exclude;
 }
 
 @JsonSerializable()

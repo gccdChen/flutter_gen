@@ -4,7 +4,6 @@ import 'package:flutter_gen_core/settings/config_default.dart';
 import 'package:flutter_gen_core/settings/pubspec.dart';
 import 'package:flutter_gen_core/utils/error.dart';
 import 'package:flutter_gen_core/utils/map.dart';
-import 'package:flutter_gen_core/version.gen.dart';
 import 'package:path/path.dart';
 import 'package:yaml/yaml.dart';
 
@@ -20,7 +19,7 @@ Config loadPubspecConfig(File pubspecFile, {File? buildFile}) {
     join(basename(pubspecFile.parent.path), basename(pubspecFile.path)),
   );
 
-  stdout.writeln('[FlutterGen] v$packageVersion Loading ...');
+  stdout.writeln('[FlutterGen]  Loading ...');
 
   final defaultMap = loadYaml(configDefaultYamlContent) as Map?;
 

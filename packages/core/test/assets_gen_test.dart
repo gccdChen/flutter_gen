@@ -14,6 +14,12 @@ import 'gen_test_helper.dart';
 
 void main() {
   group('Test Assets generator', () {
+    
+    test('file Assets on pubspec.yaml', () async {
+      const pubspec = 'test_resources/pubspec_file_assets.yaml';
+      await expectedAssetsGen(pubspec);
+    });
+
     test('Assets on pubspec.yaml', () async {
       const pubspec = 'test_resources/pubspec_assets.yaml';
       await expectedAssetsGen(pubspec);

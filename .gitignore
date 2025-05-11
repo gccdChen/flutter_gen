@@ -92,6 +92,8 @@ ios/fastlane/report.xml
 **/macos/**/dgph
 **/macos/**/xcuserdata/
 
+**/gen/
+
 # Web related
 *.dart.js
 *.info.json      # Produced by the --dump-info flag.
