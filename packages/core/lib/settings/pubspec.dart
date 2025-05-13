@@ -107,7 +107,7 @@ class FlutterGen {
     required this.fonts,
     required this.integrations,
     required this.colors,
-    required this.file,
+    this.file,
   });
 
   factory FlutterGen.fromJson(Map json) => _$FlutterGenFromJson(json);
@@ -196,7 +196,7 @@ class FlutterGenFileAssets {
   const FlutterGenFileAssets({
     required this.enabled,
     this.firstDirAsFlavor = true,
-    required this.inputs,
+    required this.input,
     required this.exclude,
   });
 
@@ -209,8 +209,8 @@ class FlutterGenFileAssets {
   @JsonKey(name: 'first_dir_as_flavor', required: false)
   final bool? firstDirAsFlavor;
 
-  @JsonKey(name: 'inputs', required: true)
-  final List<String> inputs;
+  @JsonKey(name: 'input', required: true)
+  final String input;
 
   @JsonKey(name: 'exclude', required: false)
   final List<String>? exclude;

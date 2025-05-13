@@ -20,7 +20,7 @@ import 'package:yaml/yaml.dart';
 
 class FileAssetsGenConfig {
   FileAssetsGenConfig._(
-    this.rootPath,
+    this.input,
     this._packageName,
     this.flutterGen,
     this.assets,
@@ -29,7 +29,7 @@ class FileAssetsGenConfig {
 
   factory FileAssetsGenConfig.fromConfig(File pubspecFile, Config config) {
     return FileAssetsGenConfig._(
-      pubspecFile.parent.absolute.path,
+      config.pubspec.flutterGen.file!.input,
       config.pubspec.packageName,
       config.pubspec.flutterGen,
       config.pubspec.flutter.assets,
@@ -37,7 +37,7 @@ class FileAssetsGenConfig {
     );
   }
 
-  final String rootPath;
+  final String input;
   final String _packageName;
   final FlutterGen flutterGen;
   final List<Object> assets;
@@ -119,61 +119,32 @@ List<FlavoredAsset> _getAssetRelativePathList(
   /// The absolute root path of the assets directory.
   String rootPath,
 
-  /// List of assets as provided the `flutter -> assets`
-  /// section in the pubspec.yaml.
-  List<Object> assets,
-
   /// List of globs as provided the `flutter_gen -> assets -> exclude`
   /// section in the pubspec.yaml.
   List<Glob> excludes,
 ) {
-  // Normalize.
-  final normalizedAssets = <Object>{...assets.whereType<String>()};
-  final normalizingMap = <String, Set<String>>{};
-  // Resolve flavored assets.
-  for (final map in assets.whereType<YamlMap>()) {
-    final path = (map['path'] as String).trim();
-    final flavors =
-        (map['flavors'] as YamlList?)?.toSet().cast<String>() ?? <String>{};
-    if (normalizingMap.containsKey(path)) {
-      // https://github.com/flutter/flutter/blob/5187cab7bdd434ca74abb45895d17e9fa553678a/packages/flutter_tools/lib/src/asset.dart#L1137-L1139
-      throw StateError(
-        'Multiple assets entries include the file "$path", '
-        'but they specify different lists of flavors.',
-      );
+  final assetRelativePathList = <FlavoredAsset>[];
+
+  void traverseDirectory(Directory directory, String flavor) {
+    final entities = directory.listSync();
+    for (final entity in entities) {
+      if (entity is Directory) {
+        traverseDirectory(entity, flavor);
+      } else if (entity is File) {
+        final relativePath = relative(entity.path, from: rootPath);
+        final asset = FlavoredAsset(path: relativePath, flavors: {flavor});
+        assetRelativePathList.add(asset);
+      }
     }
-    normalizingMap[path] = flavors;
-  }
-  for (final entry in normalizingMap.entries) {
-    normalizedAssets.add(
-      YamlMap.wrap({'path': entry.key, 'flavors': entry.value}),
-    );
   }
 
-  final assetRelativePathList = <FlavoredAsset>[];
-  for (final asset in normalizedAssets) {
-    final FlavoredAsset tempAsset;
-    if (asset is YamlMap) {
-      tempAsset = FlavoredAsset(path: asset['path'], flavors: asset['flavors']);
-    } else {
-      tempAsset = FlavoredAsset(path: (asset as String).trim());
-    }
-    final assetAbsolutePath = join(rootPath, tempAsset.path);
-    if (FileSystemEntity.isDirectorySync(assetAbsolutePath)) {
-      assetRelativePathList.addAll(
-        Directory(assetAbsolutePath)
-            .listSync()
-            .whereType<File>()
-            .map(
-              (file) =>
-                  tempAsset.copyWith(path: relative(file.path, from: rootPath)),
-            )
-            .toList(),
-      );
-    } else if (FileSystemEntity.isFileSync(assetAbsolutePath)) {
-      assetRelativePathList.add(
-        tempAsset.copyWith(path: relative(assetAbsolutePath, from: rootPath)),
-      );
+  // 假设每个子目录名都是一个 flavor
+  final rootDir = Directory(rootPath);
+  final children = rootDir.listSync();
+  for (final child in children) {
+    if (child is Directory) {
+      final flavor = basename(child.path);
+      traverseDirectory(child, flavor);
     }
   }
 
@@ -219,7 +190,7 @@ Future<_Statement?> _createAssetTypeStatement(
   UniqueAssetType assetType,
   List<Integration> integrations,
 ) async {
-  final childAssetAbsolutePath = join(config.rootPath, assetType.path);
+  final childAssetAbsolutePath = join(config.input, assetType.path);
   if (FileSystemEntity.isDirectorySync(childAssetAbsolutePath)) {
     final childClassName = '\$${assetType.path.camelCase().capitalize()}Gen';
     return _Statement(
@@ -281,12 +252,11 @@ Future<String> _dotDelimiterStyleDefinition(
   FileAssetsGenConfig config,
   List<Integration> integrations,
 ) async {
-  final rootPath = Directory(config.rootPath).absolute.uri.toFilePath();
+  final rootPath = Directory(config.input).absolute.uri.toFilePath();
   final packageName = generatePackageNameForConfig(config);
   final outputs = config.flutterGen.assets.outputs;
   final assetRelativePathList = _getAssetRelativePathList(
     rootPath,
-    config.assets,
     config.exclude,
   );
   final assetTypeQueue = ListQueue<AssetType>.from(
@@ -403,8 +373,7 @@ Future<String> _flatStyleDefinition(
   String Function(String) style,
 ) async {
   final List<FlavoredAsset> paths = _getAssetRelativePathList(
-    config.rootPath,
-    config.assets,
+    config.input,
     config.exclude,
   );
   paths.sort(((a, b) => a.path.compareTo(b.path)));
@@ -412,7 +381,7 @@ Future<String> _flatStyleDefinition(
     paths
         .map(
           (assetPath) => AssetType(
-            rootPath: config.rootPath,
+            rootPath: config.input,
             path: assetPath.path,
             flavors: assetPath.flavors,
           ),

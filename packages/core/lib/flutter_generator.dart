@@ -13,7 +13,7 @@ class FlutterGenerator {
   const FlutterGenerator(
     this.pubspecFile, {
     this.buildFile,
-       this.fileAssetsName = 'fileAssets.gen.dart',
+       this.fileAssetsName = 'file_assets.gen.dart',
     this.assetsName = 'assets.gen.dart',
     this.colorsName = 'colors.gen.dart',
     this.fontsName = 'fonts.gen.dart',
