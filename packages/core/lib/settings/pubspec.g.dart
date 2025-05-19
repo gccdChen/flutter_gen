@@ -75,6 +75,7 @@ FlutterGen _$FlutterGenFromJson(Map json) => $checkedCreate(
             'line_length',
             'parse_metadata',
             'assets',
+            'file',
             'fonts',
             'integrations',
             'colors'
@@ -101,6 +102,10 @@ FlutterGen _$FlutterGenFromJson(Map json) => $checkedCreate(
               'integrations', (v) => FlutterGenIntegrations.fromJson(v as Map)),
           colors: $checkedConvert(
               'colors', (v) => FlutterGenColors.fromJson(v as Map)),
+          file: $checkedConvert(
+              'file',
+              (v) =>
+                  v == null ? null : FlutterGenFileAssets.fromJson(v as Map)),
         );
         return val;
       },
@@ -160,6 +165,33 @@ FlutterGenAssets _$FlutterGenAssetsFromJson(Map json) => $checkedCreate(
       fieldKeyMap: const {
         'packageParameterEnabled': 'package_parameter_enabled'
       },
+    );
+
+FlutterGenFileAssets _$FlutterGenFileAssetsFromJson(Map json) => $checkedCreate(
+      'FlutterGenFileAssets',
+      json,
+      ($checkedConvert) {
+        $checkKeys(
+          json,
+          allowedKeys: const [
+            'enabled',
+            'first_dir_as_flavor',
+            'input',
+            'exclude'
+          ],
+          requiredKeys: const ['enabled', 'input'],
+        );
+        final val = FlutterGenFileAssets(
+          enabled: $checkedConvert('enabled', (v) => v as bool),
+          firstDirAsFlavor:
+              $checkedConvert('first_dir_as_flavor', (v) => v as bool? ?? true),
+          input: $checkedConvert('input', (v) => v as String),
+          exclude: $checkedConvert('exclude',
+              (v) => (v as List<dynamic>?)?.map((e) => e as String).toList()),
+        );
+        return val;
+      },
+      fieldKeyMap: const {'firstDirAsFlavor': 'first_dir_as_flavor'},
     );
 
 FlutterGenFonts _$FlutterGenFontsFromJson(Map json) => $checkedCreate(

@@ -114,3 +114,4 @@ coverage.lcov
 
 ## Test resources
 **/test_resources/lib
+**/gen/

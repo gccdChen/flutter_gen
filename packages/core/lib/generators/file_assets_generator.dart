@@ -5,6 +5,7 @@ import 'package:collection/collection.dart';
 import 'package:dart_style/dart_style.dart';
 import 'package:dartx/dartx.dart' hide IterableSorted;
 import 'package:flutter_gen_core/generators/generator_helper.dart';
+import 'package:flutter_gen_core/generators/integrations/file_image_integration.dart';
 import 'package:flutter_gen_core/generators/integrations/image_integration.dart';
 import 'package:flutter_gen_core/generators/integrations/integration.dart';
 import 'package:flutter_gen_core/generators/integrations/lottie_integration.dart';
@@ -53,7 +54,7 @@ Future<String> generateFileAssets(
 ) async {
   final integrations = <Integration>[
     if (config.flutterGen.integrations.image)
-      ImageIntegration(
+      FileImageIntegration(
         config.packageParameterLiteral,
         parseMetadata: config.flutterGen.parseMetadata,
       ),
@@ -115,36 +116,67 @@ String? generatePackageNameForConfig(FileAssetsGenConfig config) {
 }
 
 /// Returns a list of all relative path assets that are to be considered.
-List<FlavoredAsset> _getAssetRelativePathList(
-  /// The absolute root path of the assets directory.
-  String rootPath,
 
-  /// List of globs as provided the `flutter_gen -> assets -> exclude`
-  /// section in the pubspec.yaml.
+List<FlavoredAsset> _getAssetRelativePathList(
+  String rootPath,
   List<Glob> excludes,
+  bool firstDirAsFlavor, // 新增参数
 ) {
   final assetRelativePathList = <FlavoredAsset>[];
 
-  void traverseDirectory(Directory directory, String flavor) {
-    final entities = directory.listSync();
-    for (final entity in entities) {
-      if (entity is Directory) {
-        traverseDirectory(entity, flavor);
-      } else if (entity is File) {
-        final relativePath = relative(entity.path, from: rootPath);
-        final asset = FlavoredAsset(path: relativePath, flavors: {flavor});
-        assetRelativePathList.add(asset);
+  if (firstDirAsFlavor) {
+    // 如果启用 firstDirAsFlavor，扫描逻辑有所不同
+    final rootDir = Directory(rootPath);
+    final flavorDirs = rootDir.listSync().whereType<Directory>();
+    
+    // 收集所有 flavor 目录名
+    final flavorNames = flavorDirs.map((dir) => basename(dir.path)).toSet();
+
+    // 按 flavor 目录分别处理资源文件
+    for (final flavorDir in flavorDirs) {
+      final flavorName = basename(flavorDir.path);
+      _scanFlavorDirectory(flavorDir, rootPath, flavorName, assetRelativePathList);
+    }
+
+    // 重新处理路径，移除 flavor 前缀
+    final processedAssets = <FlavoredAsset>[];
+    for (final asset in assetRelativePathList) {
+      final parts = asset.path.split('/');
+      if (parts.isNotEmpty && flavorNames.contains(parts.first)) {
+        final newPath = parts.skip(1).join('/');
+        // 合并相同路径但不同 flavor 的资产
+        final existingAsset = processedAssets.firstOrNullWhere((a) => a.path == newPath);
+        if (existingAsset != null) {
+          existingAsset.flavors.addAll(asset.flavors);
+        } else {
+          processedAssets.add(FlavoredAsset(path: newPath, flavors: asset.flavors));
+        }
       }
     }
-  }
+    assetRelativePathList.clear();
+    assetRelativePathList.addAll(processedAssets);
+  } else {
+    // 原有的扫描逻辑
+    void traverseDirectory(Directory directory, String flavor) {
+      final entities = directory.listSync();
+      for (final entity in entities) {
+        if (entity is Directory) {
+          traverseDirectory(entity, flavor);
+        } else if (entity is File) {
+          final relativePath = relative(entity.path, from: rootPath);
+          final asset = FlavoredAsset(path: relativePath, flavors: {flavor});
+          assetRelativePathList.add(asset);
+        }
+      }
+    }
 
-  // 假设每个子目录名都是一个 flavor
-  final rootDir = Directory(rootPath);
-  final children = rootDir.listSync();
-  for (final child in children) {
-    if (child is Directory) {
-      final flavor = basename(child.path);
-      traverseDirectory(child, flavor);
+    final rootDir = Directory(rootPath);
+    final children = rootDir.listSync();
+    for (final child in children) {
+      if (child is Directory) {
+        final flavor = basename(child.path);
+        traverseDirectory(child, flavor);
+      }
     }
   }
 
@@ -156,33 +188,129 @@ List<FlavoredAsset> _getAssetRelativePathList(
       .toList();
 }
 
+
+// 用于扫描 flavor 目录的辅助函数
+void _scanFlavorDirectory(
+  Directory flavorDir,
+  String rootPath,
+  String flavorName,
+  List<FlavoredAsset> assetList,
+) {
+  void scanRecursively(Directory dir, String relativePath) {
+    final entities = dir.listSync();
+    for (final entity in entities) {
+      if (entity is Directory) {
+        final dirRelativePath = '$relativePath/${basename(entity.path)}';
+        scanRecursively(entity, dirRelativePath);
+      } else if (entity is File) {
+        final fileRelativePath = '$relativePath/${basename(entity.path)}';
+        final asset = FlavoredAsset(path: fileRelativePath, flavors: {flavorName});
+        assetList.add(asset);
+      }
+    }
+  }
+  
+  // 从 flavor 目录开始扫描，保留 flavor 名称作为路径的一部分
+  scanRecursively(flavorDir, flavorName);
+}
+
+
+
+
 AssetType _constructAssetTree(
   List<FlavoredAsset> assetRelativePathList,
   String rootPath,
+  bool firstDirAsFlavor, // 新增参数
 ) {
-  // Relative path is the key
-  final assetTypeMap = <String, AssetType>{
-    '.': AssetType(rootPath: rootPath, path: '.', flavors: {}),
-  };
-  for (final asset in assetRelativePathList) {
-    String path = asset.path;
-    while (path != '.') {
-      assetTypeMap.putIfAbsent(
-        path,
-        () => AssetType(rootPath: rootPath, path: path, flavors: asset.flavors),
+  // 根资产类型
+  final root = AssetType(rootPath: rootPath, path: '.', flavors: {});
+  
+  if (firstDirAsFlavor) {
+    // 对于 firstDirAsFlavor 模式，我们需要构建一个不同的树结构
+    // 首先按路径的第一段分组（这将成为 Assets 类中的静态字段）
+    final topLevelDirs = <String, Set<String>>{};
+    
+    for (final asset in assetRelativePathList) {
+      final parts = asset.path.split('/');
+      if (parts.length > 0) {
+        final topDir = parts[0];
+        topLevelDirs.putIfAbsent(topDir, () => {}).addAll(asset.flavors);
+      }
+    }
+    
+    // 为每个顶级目录创建一个 AssetType
+    for (final entry in topLevelDirs.entries) {
+      final topDirName = entry.key;
+      final flavors = entry.value;
+      final topDirType = AssetType(
+        rootPath: rootPath,
+        path: topDirName,
+        flavors: flavors,
       );
-      path = dirname(path);
+      root.addChild(topDirType);
+      
+      // 为该顶级目录下的所有资产创建其余树结构
+      final assetsInDir = assetRelativePathList
+          .where((asset) => asset.path.startsWith('$topDirName/') || asset.path == topDirName)
+          .toList();
+      
+      for (final asset in assetsInDir) {
+        String path = asset.path;
+        final parts = path.split('/');
+        
+        AssetType currentParent = topDirType;
+        String currentPath = topDirName;
+        
+        // 从第二段开始构建子树
+        for (int i = 1; i < parts.length; i++) {
+          currentPath = '$currentPath/${parts[i]}';
+          final childType = currentParent.children.firstOrNullWhere(
+            (child) => child.path == currentPath,
+          );
+          
+          if (childType != null) {
+            childType.flavors.addAll(asset.flavors);
+            currentParent = childType;
+          } else {
+            final newChild = AssetType(
+              rootPath: rootPath,
+              path: currentPath,
+              flavors: Set.from(asset.flavors),
+            );
+            currentParent.addChild(newChild);
+            currentParent = newChild;
+          }
+        }
+      }
+    }
+  } else {
+    // 原有的树构建逻辑
+    final assetTypeMap = <String, AssetType>{
+      '.': root,
+    };
+    
+    for (final asset in assetRelativePathList) {
+      String path = asset.path;
+      while (path != '.') {
+        assetTypeMap.putIfAbsent(
+          path,
+          () => AssetType(rootPath: rootPath, path: path, flavors: asset.flavors),
+        );
+        path = dirname(path);
+      }
+    }
+    
+    // 构造 AssetType 树
+    for (final assetType in assetTypeMap.values) {
+      if (assetType.path == '.') {
+        continue;
+      }
+      final parentPath = dirname(assetType.path);
+      assetTypeMap[parentPath]?.addChild(assetType);
     }
   }
-  // Construct the AssetType tree
-  for (final assetType in assetTypeMap.values) {
-    if (assetType.path == '.') {
-      continue;
-    }
-    final parentPath = dirname(assetType.path);
-    assetTypeMap[parentPath]?.addChild(assetType);
-  }
-  return assetTypeMap['.']!;
+  
+  return root;
 }
 
 Future<_Statement?> _createAssetTypeStatement(
@@ -217,6 +345,16 @@ Future<_Statement?> _createAssetTypeStatement(
         break;
       }
     }
+    
+    // 构建 flavors 参数（如果有）
+    String flavorsParam = '';
+    if (assetType.flavors.isNotEmpty) {
+      final flavorsStr = assetType.flavors
+          .map((f) => "'$f'")
+          .join(', ');
+      flavorsParam = ', flavors: {$flavorsStr}';
+    }
+    
     if (integration == null) {
       var assetKey = assetType.posixStylePath;
       if (config.flutterGen.assets.outputs.packageParameterEnabled) {
@@ -233,11 +371,24 @@ Future<_Statement?> _createAssetTypeStatement(
       );
     } else {
       integration.isEnabled = true;
+      
+      // 为 integration.classInstantiate 方法添加 flavors 支持
+      String instantiateValue = integration.classInstantiate(assetType);
+      
+      // 如果是启用了 firstDirAsFlavor 并且有 flavors，将其添加到实例化代码中
+      if (config.flutterGen.file?.firstDirAsFlavor == true && assetType.flavors.isNotEmpty) {
+        // 假设所有集成类的实例化格式类似于 "ClassName('path/to/asset')"
+        // 我们需要在结尾括号前添加 flavors 参数
+        if (instantiateValue.endsWith(')')) {
+          instantiateValue = instantiateValue.substring(0, instantiateValue.length - 1) + flavorsParam + ')';
+        }
+      }
+      
       return _Statement(
         type: integration.className,
         filePath: assetType.posixStylePath,
         name: assetType.name,
-        value: integration.classInstantiate(assetType),
+        value: instantiateValue,
         isConstConstructor: integration.isConstConstructor,
         isDirectory: false,
         needDartDoc: true,
@@ -247,7 +398,7 @@ Future<_Statement?> _createAssetTypeStatement(
   return null;
 }
 
-/// Generate style like Assets.foo.bar
+
 Future<String> _dotDelimiterStyleDefinition(
   FileAssetsGenConfig config,
   List<Integration> integrations,
@@ -255,29 +406,42 @@ Future<String> _dotDelimiterStyleDefinition(
   final rootPath = Directory(config.input).absolute.uri.toFilePath();
   final packageName = generatePackageNameForConfig(config);
   final outputs = config.flutterGen.assets.outputs;
+  final firstDirAsFlavor = config.flutterGen.file?.firstDirAsFlavor ?? false;
+  
   final assetRelativePathList = _getAssetRelativePathList(
     rootPath,
     config.exclude,
+    firstDirAsFlavor,
   );
-  final assetTypeQueue = ListQueue<AssetType>.from(
-    _constructAssetTree(assetRelativePathList, rootPath).children,
+  
+  final rootAssetType = _constructAssetTree(
+    assetRelativePathList,
+    rootPath,
+    firstDirAsFlavor,
+  );
+  
+  final ListQueue<AssetType> assetTypeQueue = ListQueue<AssetType>.from(
+    rootAssetType.children,
   );
 
   final assetsStaticStatements = <_Statement>[];
   final buffer = StringBuffer();
+  
   while (assetTypeQueue.isNotEmpty) {
     final assetType = assetTypeQueue.removeFirst();
     String assetPath = join(rootPath, assetType.path);
     final isDirectory = FileSystemEntity.isDirectorySync(assetPath);
+    
     if (isDirectory) {
       assetPath = Directory(assetPath).absolute.uri.toFilePath();
     } else {
       assetPath = File(assetPath).absolute.uri.toFilePath();
     }
-
-    final isRootAsset = !isDirectory &&
-        File(assetPath).parent.absolute.uri.toFilePath() == rootPath;
-    // Handles directories, and explicitly handles root path assets.
+    
+    final isRoot = File(assetPath).parent.absolute.uri.toFilePath() == rootPath;
+    final isRootAsset = !isDirectory && isRoot;
+    
+    // 处理目录或根路径资产
     if (isDirectory || isRootAsset) {
       final List<_Statement?> results = await Future.wait(
         assetType.children
@@ -289,7 +453,7 @@ Future<String> _dotDelimiterStyleDefinition(
       if (assetType.isDefaultAssetsDirectory) {
         assetsStaticStatements.addAll(statements);
       } else if (!isDirectory && isRootAsset) {
-        // Creates explicit statement.
+        // 创建明确的语句
         final statement = await _createAssetTypeStatement(
           config,
           UniqueAssetType(assetType: assetType, style: camelCase),
@@ -305,12 +469,14 @@ Future<String> _dotDelimiterStyleDefinition(
             directoryPath = 'packages/$packageName/$directoryPath';
           }
         }
+        
         buffer.writeln(
           _directoryClassGenDefinition(className, statements, directoryPath),
         );
-        // Add this directory reference to Assets class
-        // if we are not under the default asset folder
-        if (dirname(assetType.path) == '.') {
+        
+        // 如果我们使用 firstDirAsFlavor 模式，并且这是顶级目录
+        // 将此目录引用添加到 Assets 类
+        if (firstDirAsFlavor || dirname(assetType.path) == '.') {
           assetsStaticStatements.add(
             _Statement(
               type: className,
@@ -328,6 +494,7 @@ Future<String> _dotDelimiterStyleDefinition(
       assetTypeQueue.addAll(assetType.children);
     }
   }
+  
   buffer.writeln(
     _dotDelimiterStyleAssetsClassDefinition(
       outputs.className,
@@ -335,8 +502,10 @@ Future<String> _dotDelimiterStyleDefinition(
       packageName,
     ),
   );
+  
   return buffer.toString();
 }
+
 
 typedef _StyleDefinition = Future<String> Function(
   FileAssetsGenConfig config,
@@ -372,11 +541,16 @@ Future<String> _flatStyleDefinition(
   List<Integration> integrations,
   String Function(String) style,
 ) async {
+  final firstDirAsFlavor = config.flutterGen.file?.firstDirAsFlavor ?? false;
+  
   final List<FlavoredAsset> paths = _getAssetRelativePathList(
     config.input,
     config.exclude,
+    firstDirAsFlavor,
   );
+  
   paths.sort(((a, b) => a.path.compareTo(b.path)));
+  
   final List<_Statement?> results = await Future.wait(
     paths
         .map(
@@ -395,9 +569,11 @@ Future<String> _flatStyleDefinition(
           ),
         ),
   );
+  
   final statements = results.whereType<_Statement>().toList();
   final className = config.flutterGen.assets.outputs.className;
   final String? packageName = generatePackageNameForConfig(config);
+  
   return _flatStyleAssetsClassDefinition(className, statements, packageName);
 }
 
